@@ -1,0 +1,402 @@
+#VPC and Subnets
+AWSTemplateFormatVersion: "2010-09-09"
+Resources:
+  3TierVpc: # 3Tier-VPC
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: '10.0.0.0/16'
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: 'default'
+      Tags: 
+        - Key: 'Name'
+          Value: '3Tier-VPC'
+  publicSubnet1: #prublic-subnet-AZ1
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: 'ap-southeast-1a'
+      CidrBlock: '10.0.0.0/24'
+      MapPublicIpOnLaunch: true #auto assign public IP
+      Tags: 
+        - Key: 'Name'
+          Value: 'public-subnet-AZ1'
+      VpcId:
+        !Ref 3TierVpc
+  publicSubnet2: #prublic-subnet-AZ2
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: 'ap-southeast-1b'
+      CidrBlock: '10.0.1.0/24'
+      MapPublicIpOnLaunch: true #auto assign public IP
+      Tags: 
+        - Key: 'Name'
+          Value: 'public-subnet-AZ2'
+      VpcId:
+        !Ref 3TierVpc
+  privateSubnet1: #private-subnet-AZ1
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: 'ap-southeast-1a'
+      CidrBlock: '10.0.2.0/24'
+      MapPublicIpOnLaunch: false #auto assign public IP
+      Tags: 
+        - Key: 'Name'
+          Value: 'private-subnet1-AZ1'
+      VpcId:
+        !Ref 3TierVpc
+  privateSubnet2: #private-subnet-AZ2
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: 'ap-southeast-1b'
+      CidrBlock: '10.0.3.0/24'
+      MapPublicIpOnLaunch: false #auto assign public IP
+      Tags: 
+        - Key: 'Name'
+          Value: 'private-subnet2-AZ2'
+      VpcId:
+        !Ref 3TierVpc
+  privateSubnet3: #private-subnet-DB-AZ1
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: 'ap-southeast-1a'
+      CidrBlock: '10.0.4.0/24'
+      MapPublicIpOnLaunch: false #auto assign public IP
+      Tags: 
+        - Key: 'Name'
+          Value: 'private-subnet-DB-AZ1'
+      VpcId:
+        !Ref 3TierVpc
+  privateSubnet4: #private-subnet-DB-AZ2
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: 'ap-southeast-1b'
+      CidrBlock: '10.0.5.0/24'
+      MapPublicIpOnLaunch: false #auto assign public IP
+      Tags: 
+        - Key: 'Name'
+          Value: 'private-subnet-DB-AZ2'
+      VpcId:
+        !Ref 3TierVpc
+
+#Internet connectivity
+  igwforpublicsubnets: #igw for public subnets
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags: 
+        - Key: 'Name'
+          Value: 'igw-3tier'
+  attachGateway: #igw attach to VPC
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref igwforpublicsubnets
+      VpcId: !Ref 3TierVpc
+  elasticIpaz1: #elastic ip for NAT GW AZ1
+    Type: AWS::EC2::EIP
+    Properties:
+      NetworkBorderGroup: 'ap-southeast-1'
+      Domain: 'vpc'
+      Tags: 
+        - Key: 'Name'
+          Value: 'EIP-AZ1'
+  elasticIpaz2: #elastic ip for NAT GW AZ2
+    Type: AWS::EC2::EIP
+    Properties:
+      NetworkBorderGroup: 'ap-southeast-1'
+      Domain: '3TierVpc'
+      Tags: 
+        - Key: 'Name'
+          Value: 'EIP-AZ2'
+  natgwAz1: #NAT Gateway for AZ1
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt elasticIpaz1.AllocationId
+      SubnetId: 
+        !Ref publicSubnet1
+      Tags: 
+        - Key: 'Name'
+          Value: 'natgw-AZ1'
+  natgwAz2: #NAT Gateway for AZ2
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt elasticIpaz2.AllocationId
+      SubnetId: 
+        !Ref publicSubnet2
+      Tags: 
+        - Key: 'Name'
+          Value: 'natgw-AZ2'
+  
+#Routing configuration
+  publicRtb: #Route table for Public
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: 
+        !Ref 3TierVpc
+      Tags: 
+        - Key: 'Name'
+          Value: 'Public-RTB'
+  attachToPublicRtb: #Attach to Public Route table
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId: !Ref igwforpublicsubnets
+      RouteTableId: !Ref publicRtb
+  privateRtb1: #Private Route Table for AZ1
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags: 
+      - Key: 'Name'
+        Value: 'Private-Rtb-AZ1'
+      VpcId: 
+        !Ref 3TierVpc
+  privateRtb2: #Private Route Table for AZ2
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags: 
+      - Key: 'Name'
+        Value: 'Private-Rtb-AZ2'
+      VpcId: 
+        !Ref 3TierVpc
+  attachToPrivatertb1: #Attach to Private-AZ1 Route table
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: '0.0.0.0/0'
+      NatGatewayId: !Ref natgwAz1
+      RouteTableId: !Ref privateRtb1
+  attachToPrivatertb2: #Attach to Private-AZ2 Route table
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: '0.0.0.0/0'
+      NatGatewayId: !Ref natgwAz2
+      RouteTableId: !Ref privateRtb2
+  publicsubnet1AssociateRtb: #public subnet AZ1 associate with public rtb
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref publicRtb
+      SubnetId: !Ref publicSubnet1
+  publicsubnet2AssociateRtb: #public subnet AZ2 associate with public rtb
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref publicRtb
+      SubnetId: !Ref publicSubnet2
+  privatesubnet1AssociateRtb1: #private subnet AZ1 associate with private rtb1
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        !Ref privateRtb1
+      SubnetId: 
+        !Ref privateSubnet1
+  privatesubnet2AssociateRtb2: #private subnet AZ2 associate with private rtb2
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        !Ref privateRtb2
+      SubnetId: 
+        !Ref privateSubnet2
+  endpointS3: #Endpoint gateway to S3
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      RouteTableIds: 
+        - !Ref publicRtb
+        - !Ref privateRtb1
+        - !Ref privateRtb2
+      ServiceName: 'com.amazonaws.ap-southeast-1.s3'
+      VpcEndpointType: 'Gateway'
+      VpcId: !Ref 3TierVpc
+
+
+#Security Groups
+  extAlbSg: # Security Group for External Load Balancer
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'Security Group for External Load Balancer'
+      VpcId: !Ref 3TierVpc
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: '0.0.0.0/0'
+      Tags: 
+        - Key: 'Name'
+          Value: 'Ext-ALB-SG'
+  webTierSg: # Security Group for Web-Tier
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'Security Group for Web-Tier'
+      VpcId: !Ref 3TierVpc
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: '0.0.0.0/0'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !GetAtt extAlbSg.GroupId
+      Tags: 
+        - Key: 'Name'
+          Value: 'Web-Tier-SG'
+  intAlbSg: # Security Group for Internal Load Balancer
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'Security Group for Internal Load Balancer'
+      VpcId: !Ref 3TierVpc
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !GetAtt webTierSg.GroupId
+      Tags: 
+        - Key: 'Name'
+          Value: 'Int-ALB-SG'
+  appTierSg: # Security Group for APP-Tier
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'Security Group for APP-Tier'
+      VpcId: !Ref 3TierVpc
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !GetAtt bhSecuritygroup.GroupId
+        - IpProtocol: tcp
+          FromPort: 4000
+          ToPort: 4000
+          SourceSecurityGroupId: !GetAtt intAlbSg.GroupId
+      Tags: 
+        - Key: 'Name'
+          Value: 'APP-Tier-SG'
+  dbSecuritygroup: #Security group for database
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties: 
+      GroupDescription: 'Security Group for Database'
+      VpcId: !Ref 3TierVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurtyGroupId: !GetAtt appTierSg.GroupId
+  bhSecuritygroup: #Security group for Bastion Host
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties: 
+      GroupDescription: 'Security Group for Bastion Host'
+      VpcId: !Ref 3TierVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: '0.0.0.0/0'
+
+#Database Deployment
+  dbSubnetgroup: #Subnet group for database
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: 'Subnet-group-for-DB'
+      SubnetIds: 
+        - !Ref privateSubnet3
+        - !Ref privateSubnet4
+      Tags: 
+        - Key: 'Name'
+          Value: 'SG-DB'
+  
+  myDBCluster: # DB cluster
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: 'aurora-mysql'
+      DBClusterIdentifier: 'my-aurora-cluster'
+      MasterUsername: 'admin'
+      MasterUserPassword: 'admin123'
+      VpcSecurityGroupIds: 
+        - !Ref dbSecuritygroup
+      DBSubnetGroupName: !Ref dbSubnetgroup
+      Port: 3306   
+      
+  myDBInstance1: #Database instance 1 for writer AZ1
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref myDBCluster
+      DBInstanceClass: 'db.t3.medium'
+      DBInstanceIdentifier: 'my-aurora-instance-1'
+      #DBName: 'webappdb'
+      #AllocatedStorage: '50'
+      AvailabilityZone: 'ap-southeast-1a'
+      Engine: 'aurora-mysql'
+      #Port: 3306
+      
+  myDBInstance2: #Database instance 2 for reader AZ2
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref myDBCluster
+      DBInstanceClass: 'db.t3.medium'
+      DBInstanceIdentifier: 'my-aurora-instance-2'
+      #DBName: 'webappdb'
+      #AllocatedStorage: '50'
+      AvailabilityZone: 'ap-southeast-1b'
+      Engine: 'aurora-mysql'
+      #Port: 3306   
+#Create keypair
+  #myKeyPair: #Key pair for instances
+    #Type: 'AWS::EC2::KeyPair'
+    #Properties:
+      #KeyName: my-key-pair
+
+#Bastion host instance
+  bastionHost: #Bastion host
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: 'ami-0be48b687295f8bd6' #able to modify with other AMI
+      InstanceType: 't2.micro'
+      KeyName: 'pw-test-instance-key'
+      AvailabilityZone: 'ap-southeast-1a'
+      SubnetId: !Ref publicSubnet1
+      Tenancy: 'default'
+      IamInstanceProfile: 'ec2-fullyaccess-s3'
+      SecurityGroupIds: 
+        - !Ref bhSecuritygroup
+      Tags: 
+        - Key: 'Name'
+          Value: 'Bastion-Host'
+#App-Tier instances
+  appInstance: #app-instance for AMI
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: 'ami-0bcedba63d7253ea7'
+      InstanceType: 't2.micro'
+      KeyName: 'pw-test-instance-key'
+      AvailabilityZone: 'ap-southeast-1a'
+      SubnetId: !Ref privateSubnet1
+      Tenancy: 'default'
+      IamInstanceProfile: 'ec2-fullyaccess-s3'
+      SecurityGroupIds: 
+        - !Ref appTierSg
+      Tags: 
+        - Key: 'Name'
+          Value: 'App-Instance'
+      #UserData: String
+
+#Web-Tier instance deployment
+  webTierInstance: # Web-Tier instance
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: 'ami-0bcedba63d7253ea7' #able to modify with other AMI
+      InstanceType: 't2.micro'
+      KeyName: 'pw-test-instance-key'
+      AvailabilityZone: 'ap-southeast-1a'
+      SubnetId: !Ref publicSubnet1
+      Tenancy: 'default'
+      IamInstanceProfile: 'ec2-fullyaccess-s3'
+      SecurityGroupIds: 
+        - !Ref appTierSg
+      Tags: 
+        - Key: 'Name'
+          Value: 'Web-Tier-Instance'
+
+Outputs:
+  DBClusterEndpoint:
+    Description: 'Aurora DB Cluster Endpoint'
+    Value: !GetAtt myDBCluster.Endpoint.Address
+  DBClusterReadEndpoint:
+    Description: 'Aurora DB Cluster Reader Endpoint'
+    Value: !GetAtt myDBCluster.ReadEndpoint.Address
+  #KeyPairName:
+    #Description: 'Name of the created Key Pair'
+    #Value: !Ref myKeyPair
